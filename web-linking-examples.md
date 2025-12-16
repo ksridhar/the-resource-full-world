@@ -199,4 +199,126 @@ Link: <https://example.com/images/photo-123.jpg>; rel="describes"
 
 * **Meaning:** "The content you are currently reading (`metadata.xml`) describes the resource at the target URI (`photo-123.jpg`)."
 
+-----
+
+## Set 3
+
+You are spot on that `rev` was the historical mechanism for this, but under the current standard (**RFC 8288**), the answer is **no**. You should not use `rev`.
+
+RFC 8288 explicitly deprecated and removed the `rev` parameter. Here is the breakdown of why and how you handle "reverse" relationships now.
+
+### 1. Why `rev` was removed
+In the older spec (RFC 5988), you could toggle the direction of a link using `rev`.
+* `rel="x"` meant: "Current Resource -> has relation X to -> Target Resource"
+* `rev="x"` meant: "Target Resource -> has relation X to -> Current Resource"
+
+However, this caused significant confusion for developers and parsers. It was often ambiguous whether a registered relation type (like `stylesheet` or `next`) even *made sense* in reverse. Because of this ambiguity and lack of usage, RFC 8288 removed `rev` entirely.
+
+### 2. The Solution: Explicit Inverse Relations
+Instead of using a flag (`rev`) to reverse a relation, the modern standard requires using a specific **Relation Type** that is defined effectively as the inverse verb.
+
+This is exactly why `describes` exists alongside `describedby`.
+
+| If you want to say... | Old Way (Deprecated) | **Current Way (RFC 8288)** |
+| :--- | :--- | :--- |
+| **A** describes **B** | `Link: <B>; rel="describes"` | `Link: <B>; rel="describes"` |
+| **A** is described by **B** | `Link: <B>; rel="describedby"` | `Link: <B>; rel="describedby"` |
+| **A** describes **B** (using reverse) | `Link: <B>; rev="describedby"` | **INVALID** |
+
+### 3. Case 7 Analysis
+In the example I gave:
+> **Context (Current Resource):** `metadata.xml`
+> **Target:** `photo-123.jpg`
+
+We want to state that the **XML describes the JPG**.
+
+* **Using `rel`:** We look for a relation that means "Subject describes Object." That relation is `describes`.
+    * `Link: <photo-123.jpg>; rel="describes"`
+    * *Read as:* "This XML **describes** that JPG."
+
+* **Using `rev` (Hypothetical/Deprecated):** We would have looked for a relation that means "Object describes Subject" (`describedby`) and reversed it.
+    * `Link: <photo-123.jpg>; rev="describedby"`
+    * *Read as:* "That JPG **is described by** this XML."
+
+Since `rev` is non-standard now, you must use the explicit relation `describes`.
+
+### 4. Alternative: The `anchor` Parameter
+If you ever find yourself in a situation where a specific "inverse" relation type (like `describes`) doesn't exist in the registry, you still shouldn't use `rev`.
+
+Instead, you can use the `anchor` parameter to change the **Subject** of the link.
+
+**Scenario:** You want to express that `Page B` is the `next` page after `Page A`, but you are currently serving `Page A` and want to write the link "backwards" for some reason.
+* **Normal:** `Link: <PageB>; rel="next"` (A is followed by B)
+* **Using Anchor:** `Link: <PageA>; rel="prev"; anchor="PageB"`
+    * *Read as:* "Starting from **Page B** (`anchor`), the relationship `prev` points to **Page A** (Target)."
+
+**Would you like to see an example of using `anchor` to fix a `rev` situation where no inverse verb exists?**o
+
+
+-----
+
+## Set 4
+
+
+Here is the example of using `anchor` to solve the "missing inverse" problem.
+
+### The Problem
+
+Imagine you have a **Copyright Statement** page, and you want that page to list the images it covers.
+
+  * **Resource A (Image):** `https://example.com/photo.jpg`
+  * **Resource B (Copyright Page):** `https://example.com/legal/copyright`
+
+The standard relationship is **A $\rightarrow$ copyright $\rightarrow$ B**.
+(`photo.jpg` has a copyright link pointing to `legal/copyright`).
+
+But you are currently serving **Resource B** (the Copyright Page). You want to tell the client: *"By the way, I am the copyright page for that photo over there."*
+
+There is no standard `is-copyright-for` relation in the registry.
+
+### The Solution: `anchor`
+
+Since you cannot change the verb (Relation Type), you change the **Subject** of the sentence using `anchor`.
+
+Instead of saying:
+
+> "I (Copyright Page) am the copyright for Photo.jpg" (Impossible, no verb exists)
+
+You say:
+
+> "Starting from **Photo.jpg**, the `copyright` link points to **Me**."
+
+### The HTTP Header
+
+**Request:**
+`GET /legal/copyright HTTP/1.1`
+
+**Response:**
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/html
+
+Link: <https://example.com/legal/copyright>; rel="copyright"; anchor="https://example.com/photo.jpg"
+```
+
+### Breakdown
+
+1.  **The Target (`<...>`)**: `https://example.com/legal/copyright`
+      * This is the destination of the link (the resource usually being requested).
+2.  **The Relation (`rel`)**: `copyright`
+      * This is the standard, forward-direction verb.
+3.  **The Anchor (`anchor`)**: `https://example.com/photo.jpg`
+      * This overrides the context. It tells the browser/client: "Don't treat the current page as the starting point. Treat `photo.jpg` as the starting point."
+
+### Summary Table
+
+| Parameter | Value | Role in Sentence |
+| :--- | :--- | :--- |
+| **Anchor** | `.../photo.jpg` | **Subject** (The thing that *has* the copyright) |
+| **Rel** | `copyright` | **Verb** (The relationship type) |
+| **Target** | `.../legal/copyright` | **Object** (The copyright resource itself) |
+
+This creates a valid RDF-style triple: `<photo.jpg>` -- `copyright` --\> `<copyright>` fully compliant with RFC 8288, without needing a non-standard `rev` attribute.
+
 
